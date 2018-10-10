@@ -11,10 +11,10 @@ import (
 
 
 	"github.com/gorilla/mux"
-	"github.com/davecgh/go-spew/spew"
 
 	"Course/wallet"
 	"fmt"
+	"log"
 )
 
 func makeMuxRouter() http.Handler {
@@ -84,22 +84,34 @@ func handleWriteBlock(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	newBlock := blockchain.GenerateBlock(blockchain.BlockchainInstance.Blocks[len(blockchain.BlockchainInstance.Blocks)-1], m.Msg)
+
+	address := blockchain.GenPosAddress()
+	newBlock := blockchain.GenerateBlock(blockchain.BlockchainInstance.Blocks[len(blockchain.BlockchainInstance.Blocks)-1], m.Msg, address)
 
 
 	if len(blockchain.BlockchainInstance.TxPool.AllTx) > 0 {
 		blockchain.BlockchainInstance.PackageTx(&newBlock)
 	}else {
 		newBlock.Accounts = blockchain.BlockchainInstance.LastBlock().Accounts
+		newBlock.Transactions = make([]blockchain.Transaction,0)
 	}
 
 	if blockchain.IsBlockValid(newBlock, blockchain.BlockchainInstance.Blocks[len(blockchain.BlockchainInstance.Blocks)-1]) {
 		blockchain.Lock()
 		blockchain.BlockchainInstance.Blocks = append(blockchain.BlockchainInstance.Blocks, newBlock)
 		blockchain.UnLock()
-		spew.Dump(blockchain.BlockchainInstance.Blocks)
+
+
+		b, err := json.MarshalIndent(blockchain.BlockchainInstance.Blocks, "", "  ")
+		if err != nil {
+			log.Fatal(err)
+		}
+		// Green console color: 	\x1b[32m
+		// Reset console color: 	\x1b[0m
+		fmt.Printf("\x1b[32m%s\x1b[0m ", string(b))
 	}
 
+	blockchain.BlockchainInstance.WriteDate2File()
 	respondWithJSON(w, r, http.StatusCreated, newBlock)
 
 }
@@ -136,7 +148,7 @@ func respondWithJSON(w http.ResponseWriter, r *http.Request, code int, payload i
 func RunHttpServer(port int) error {
 	mux := makeMuxRouter()
 	listentPort := strconv.Itoa(port)
-	fmt.Println("local http server listening on 127.0.0.1:"+listentPort)
+	fmt.Printf("\nlocal http server listening on \x1b[32m127.0.0.1:%s\x1b[0m\n\n",listentPort)
 	s := &http.Server{
 		Addr:           ":" + listentPort,
 		Handler:        mux,

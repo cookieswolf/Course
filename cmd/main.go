@@ -17,12 +17,15 @@ import (
 	gologging "github.com/whyrusleeping/go-logging"
 	ma "github.com/multiformats/go-multiaddr"
 	"Course/wallet"
+	"os"
 )
+const difficulty = 1
 
 func main() {
 
 	// Parse options from the command line
-	command  := flag.String("c", "", "mode[ \"chain\" or \"account\"]")
+	command  := flag.String("c", "", "mode[\"chain\" or \"account\"]")
+	datadir := flag.String("datadir", "", "Data directory for the databases")
 	listenF := flag.Int("l", 0, "wait for incoming connections[chain mode param]")
 	target := flag.String("d", "", "target peer to dial[chain mode param]")
 	suffix := flag.String("s", "", "wallet suffix [chain mode param]")
@@ -33,7 +36,7 @@ func main() {
 
 
 	if *command == "chain" {
-		runblockchain(listenF, target, seed, secio, suffix, initAccounts)
+		runblockchain(listenF, target, seed, secio, suffix, initAccounts, datadir)
 	}else if *command == "account" {
 		cli := wallet.WalletCli{}
 		cli.Run()
@@ -42,23 +45,45 @@ func main() {
 	}
 }
 
-func runblockchain(listenF *int, target *string, seed *int64, secio *bool, suffix *string, initAccounts *string){
+func runblockchain(listenF *int, target *string, seed *int64, secio *bool, suffix *string, initAccounts *string, datadir *string){
+	if *datadir == ""{
+		log.Println("data directory for this node miss，The data of the node will not be stored.")
+	}else {
+		if IsFile(*datadir) {
+			log.Println(fmt.Sprintf("datadir[%s] is a file", *datadir))
+			return
+		}
+
+		if !IsExist(*datadir) {
+			log.Println(fmt.Sprintf("datadir[%s] not exist", *datadir))
+			return
+		}
+	}
+
 	t := time.Now()
 	genesisBlock := blockchain.Block{}
-	defaultAccounts := make(map[string]uint64)
+	defaultAccounts := make(map[string]blockchain.Account)
 
 	if *initAccounts != ""{
 		if wallet.ValidateAddress(*initAccounts) == false {
 			fmt.Println("Invalid address")
 			return
 		}
-		defaultAccounts[*initAccounts] = 10000
+		newAccount := new(blockchain.Account)
+		newAccount.Balance = 10000
+		newAccount.State = 0
+		defaultAccounts[*initAccounts] = *newAccount
 	}
-	genesisBlock = blockchain.Block{0, t.String(), 0, blockchain.CalculateHash(genesisBlock), "", 100,nil, defaultAccounts}
+
+	genesisBlock = blockchain.Block{0, t.String(), 0, blockchain.CalculateHash(genesisBlock), "", 100,make([]blockchain.Transaction,0), defaultAccounts,difficulty, "",""}
 
 	var blocks []blockchain.Block
 	blocks = append(blocks, genesisBlock)
 	blockchain.BlockchainInstance.Blocks =  blocks
+	blockchain.BlockchainInstance.DataDir = *datadir
+
+
+	blockchain.BlockchainInstance.ReadDataFromFile()
 
 	// LibP2P code uses golog to log messages. They log with different
 	// string IDs (i.e. "swarm"). We can control the verbosity level for
@@ -78,7 +103,7 @@ func runblockchain(listenF *int, target *string, seed *int64, secio *bool, suffi
 	go rpc.RunHttpServer(*listenF+1)
 
 	// Make a host that listens on the given multiaddress
-	ha, err := blockchain.MakeBasicHost(*listenF, *secio, *seed)
+	ha, err := blockchain.MakeBasicHost(*listenF, *secio, *seed, *initAccounts)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -139,4 +164,20 @@ func runblockchain(listenF *int, target *string, seed *int64, secio *bool, suffi
 		select {} // hang forever
 
 	}
+}
+
+func IsFile(f string) bool {
+	fi, e := os.Stat(f)
+	if e != nil {
+		return false
+	}
+	return !fi.IsDir()
+}
+
+func IsExist(dir string) bool {
+	fi, e := os.Stat(dir)
+	if e != nil {
+		return os.IsExist(e)
+	}
+	return fi.IsDir()
 }
